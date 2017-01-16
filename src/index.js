@@ -1,6 +1,7 @@
 var fs = require('fs');
 var request = require("request");
 var cheerio = require("cheerio");
+var moment = require("moment");
 var AlexaSkill = require('./AlexaSkill');
 
 var APP_ID = 'amzn1.ask.skill.0fdc78be-c6a1-462b-9cfc-c8c1e01aeb11';
@@ -66,23 +67,27 @@ var intentHandlersDE = {
 };
 
 function handleEventRequest(intent, response, language) {
-    // var album = intent.slots.Album.value? intent.slots.Album.value : '';
-    // var artist = intent.slots.Artist.value? intent.slots.Artist.value : '';
-    // var albumAndArtist = album + ' ' + artist;
+    var date = intent.slots.Date.value;
 
-    helper.getAlbumRating(albumAndArtist, function(albumReview) {
+    helper.getAskHelmutEvents('Berlin', date, function(events) {
         var speechOutput = '';
         if(language !== 'DE'){
-            speechOutput = "Pitchfork rated " + album + " by " + artist + " at " + albumReview.rating + ". They wrote: " + albumReview.abstract;
+            speechOutput = "The top 3 picks for your weekend in Berlin are: ";
+            for (var i = 0; i < events.length; i++) {
+                speechOutput += 'On ' + moment.weekdays(events[i].weekday()) + ' \'' + events[i].title + ' at ' + events[i].location + '.';
+            }
         } else {
-            speechOutput = 'Pitchfork hat ' + album + " von " + artist + " mit " + albumReview.rating + "bewertet. In der Zusammenfassung heißt es: <s xml:lang=\"en-US\">" + albumReview.abstract + "</s>";
+            speechOutput = "Die Top 3 für dein Wochenende in Berlin: ";
+            for (var i = 0; i < events.length; i++) {
+                speechOutput += 'Am ' + moment.weekdays(events[i].weekday()) + ' \'' + events[i].title + '. Location: ' + events[i].location + '.';
+            }
         }
         response.tell(speechOutput);
     }, function(errorFeedback){
         if(language !== 'DE'){
-            response.tell('I couldn\'t find a result for ' + album + ' by ' + artist + '.');
+            response.tell('I couldn\'t find any results.');
         } else {
-            response.tell('Ich konnte keine Ergebnisse zu ' + album + ' von ' + artist + ' finden.')
+            response.tell('Ich konnte keine Ergebnisse finden.')
         }
     });
 }
@@ -92,10 +97,11 @@ exports.handler = function (event, context) {
     var skill = new AlexaSkill(APP_ID);
 
     AlexaSkill.prototype.eventHandlers.onLaunch = function (launchRequest, session, response) {
-        response.tell('What can I help you with? Try it out like this: \'Ask event finder what\'s going on this weekend in Berlin?\'');
+        response.tell('What can I help you with? Try it out like this: \'Ask event finder what\'s going on this weekend in Berlin!\'');
     }
 
     var locale = event.request.locale;
+    moment.locale(locale);
 
     if (locale == 'en-GB'){
         skill.intentHandlers = intentHandlersUK;
@@ -268,13 +274,28 @@ var helper = {
     /** Gets the given album's review from Pitchfork.
      *  Calls the callbackfunction with the abstract of the review.
      */
-    getAskHelmutEvents: function (city, givenDay, callbackFunction, errorCallbackFunction) {
-        // Scrape http://pitchfork.com/search/?query=
-        // to find out the rating for the given album
+    getAskHelmutEvents: function (city, date, callbackFunction, errorCallbackFunction) {
+        var typeOfDate;
+        // Convert the weekend date to something Moment.js can use
+        if(date.indexOf('-WE') === 8) {
+            date = moment(date.replace('-WE', ''));
+            date.add(4, 'days');
+            typeOfDate = 'weekend';
+        } else {
+            if(date[5] === 'W'){
+                typeOfDate = 'week';
+            } else if (date.length === 10) {
+                typeOfDate = 'day';
+            } else {
+                typeOfDate = 'wholerange'
+            }
+            date = moment(date);
+        }
+        // Scrape https://askhelmut.com/lists/helmuts-list-berlin to find events for the given time
         // Scrape tutorial here: https://www.sitepoint.com/web-scraping-in-node-js/
         var prefix = 'http://pitchfork.com';
         request({
-            uri: 'https://askhelmut.com/lists/helmuts-list-berlin',
+            uri: 'https://askhelmut.com/lists/helmuts-list-' + city,
         }, function(error, response, body) {
             try{
                 var $ = cheerio.load(body);
@@ -282,15 +303,24 @@ var helper = {
                 var events = [];
                 days.each(function(index, element) {
                     var loadedElement = cheerio.load(element);
-                    // See if the given event takes place on a Friday or Saturday
-                    if (givenDay === 'weekend' &&
-                        (loadedElement(".event-tile-info__date").text().indexOf('Fr') === 1 ||
-                         loadedElement(".event-tile-info__date").text().indexOf('Sa') === 1)) {
-                        var eventObject = JSON.parse(loadedElement(".event-tile__favorites")['0'].attribs['data-react-props']);
+                    var eventObject = JSON.parse(loadedElement(".event-tile__favorites")['0'].attribs['data-react-props']);
+                    var eventDate = eventObject.tracking.resource.substr(8, 10);
+                    if(eventDate.indexOf('-') === 4) {
+                        eventDate = moment(eventObject.tracking.resource.substr(8, 10), 'YYYY-MM-DD');
+                    } else {
+                        eventDate = moment(eventObject.tracking.resource.substr(8, 10), 'DD-MM-YYYY');
+                    }
+                    // See if the given event takes place in the given timerange
+                    if (typeOfDate === 'wholerange' || 
+                        (typeOfDate === 'week' && eventDate.isBetween(date, date.clone().add(7, 'days'), null, '[)')) ||
+                        (typeOfDate === 'weekend' && eventDate.isBetween(date, date.clone().add(1, 'days'), null, '[]')) || 
+                        (typeOfDate === 'day' && date.isSame(eventDate))
+                        ) {
+                        console.log(eventDate);
                         // Replace all line breaks using a regular expression
                         eventObject.title = loadedElement(".event-tile-title.ellipsis").text().replace(/\n/g,'');
                         eventObject.location = loadedElement(".event-tile-info__venue-title").text().replace(/\n/g,'');
-                        eventObject.date = loadedElement(".event-tile-info__date").text().replace(/[\n\|]/g,'');
+                        eventObject.date = eventDate;
                         events.push(eventObject);
                     }
                 });
@@ -306,7 +336,7 @@ var helper = {
                     }
                 });
 
-                console.log(events);
+                callbackFunction(sortedEvents);
                 
             } catch (error) {
                 errorCallbackFunction(error);
@@ -314,5 +344,3 @@ var helper = {
         });
     }
 };
-
-helper.getAskHelmutEvents('berlin', 'weekend', function(){}, function(error){console.log(error)});
