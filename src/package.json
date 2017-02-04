@@ -1,7 +1,7 @@
 {
-  "name": "DecisionTree",
+  "name": "event-finder",
   "version": "1.0.0",
-  "description": "Alexa Decision Tree template",
+  "description": "An Alexa Skill that finds events",
   "main": "index.js",
   "dependencies": {
     "alexa-app": "^2.4.0",

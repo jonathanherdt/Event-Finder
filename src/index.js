@@ -1,19 +1,19 @@
 var fs = require('fs');
 var request = require("request");
 var cheerio = require("cheerio");
+var moment = require("moment");
 var Alexa = require('alexa-app');
 
 var app = new Alexa.app('eventfinder');
 
 var helpAndLaunchFunction = function (request, response) {
-    console.log(request);
     var prompt, reprompt;
-    if(request.locale === 'de-DE') {
+    if(request.data.request.locale === 'de-DE') {
         reprompt = 'Mit Events für welche Stadt kann ich dir helfen?';
-        prompt = "Du kannst mich Sachen wie folgt fragen: 'Frag Event-Finder nach Events in Berlin an diesem Wochenende!', oder, du kannst 'Ende!' sagen... Wie kann ich dir helfen?";
+        prompt = "Du kannst mich Sachen wie folgt fragen: 'Frag Event-Finder nach Events in Berlin an diesem Wochenende!', oder, du kannst 'Ende!' sagen... Ich kann dir aktuell Events für Berlin, Leipzig, München und Köln liefern. Wie kann ich dir helfen?";
     } else {
         reprompt = 'Which city do you want to get events for?';
-        prompt = "You can make a request like 'Ask event finder what's going on this weekend in Berlin?', or, you can say 'Exit!'... What can I help you with?";
+        prompt = "You can make a request like 'Ask event finder what's going on this weekend in Berlin?', or, you can say 'Exit!'... Currently I can give you events for Berlin, Leipzig, Munich and Cologne. What can I help you with?";
     }
     response.say(prompt).reprompt(reprompt).shouldEndSession(false).send();
 }
@@ -24,7 +24,7 @@ app.intent('AMAZON.HelpIntent', helpAndLaunchFunction);
 
 var exitFunction = function (request, response) {
     var speechOutput;
-    if(request.locale === 'de-DE') {
+    if(request.data.request.locale === 'de-DE') {
         speechOutput = 'Auf Wiedersehen!';
     } else {
         speechOutput = 'Goodbye';
@@ -49,7 +49,6 @@ app.intent('GetEventsIntent', {
         // '{-|Album} by {-|Artist}']
     },
     function (request, response) {
-        console.log(request);
         handleEventRequest(request, response);
         // Gotta return false because we handle the response asynchronously
         return false;
@@ -57,27 +56,47 @@ app.intent('GetEventsIntent', {
 )
 
 function handleEventRequest(request, response) {
-    var date = request.slots.Date.value;
+    var date = request.slot('Date'), city = request.slot('City');
 
-    helper.getAskHelmutEvents('Berlin', date, function(events) {
+    if(!date) {
+        response.say('Ich konnte das Datum nicht richtig verstehen').send();
+        return;
+    }
+    if(!city) {
+        response.say('Ich konnte die Stadt nicht richtig verstehen').send();
+    }
+
+    helper.getAskHelmutEvents(city, date, function(events) {
         var speechOutput = '';
-        if(request.locale === 'de-DE') {
-            speechOutput = "Die Top 3 für dein Wochenende in Berlin: ";
-            for (var i = 0; i < events.length; i++) {
-                speechOutput += 'Am ' + moment.weekdays(events[i].weekday()) + ' \'' + events[i].title + '. Location: ' + events[i].location + '.';
+        if(request.data.request.locale === 'de-DE') {
+            if(events.length === 0){
+                speechOutput = 'Tut mir leid, ich konnte keine Events in ' + city + ' finden.';
+            } else {
+                // Make sure the week days are pronounced in the correct language
+                moment.locale('de');
+                speechOutput = "Deine Top-Events in " + city + ": ";
+                for (var i = 0; i < events.length && i < 3; i++) {
+                    speechOutput += 'Am ' + moment.weekdays(events[i].date.weekday()) + ' \'' + events[i].title + '. Location: ' + events[i].location + '. ';
+                }
             }
         } else {
-            speechOutput = "The top 3 picks for your weekend in Berlin are: ";
-            for (var i = 0; i < events.length; i++) {
-                speechOutput += 'On ' + moment.weekdays(events[i].weekday()) + ' \'' + events[i].title + ' at ' + events[i].location + '.';
+            if(events.length === 0){
+                speechOutput = 'I\'m sorry, I couldn\'t find any events in ' + city;
+            } else {
+                // Make sure the week days are pronounced in the correct language
+                moment.locale('en');
+                speechOutput = "Your top picks in " + city + " are: ";
+                for (var i = 0; i < events.length && i < 3; i++) {
+                    speechOutput += 'On ' + moment.weekdays(events[i].date.weekday()) + ' \'' + events[i].title + ' at ' + events[i].location + '.';
+                }
             }
         }
-        response.tell(speechOutput);
+        response.say(speechOutput).send();
     }, function(errorFeedback){
-        if(request.locale === 'de-DE') {
-            response.tell('Ich konnte keine Ergebnisse finden.')
+        if(request.data.request.locale === 'de-DE') {
+            response.say('Ich konnte keine Ergebnisse finden.').send()
         } else {
-            response.tell('I couldn\'t find any results.');
+            response.say('I couldn\'t find any results.').send();
         }
     });
 }
@@ -86,11 +105,15 @@ function handleEventRequest(request, response) {
 
 var helper = {
 
-    /** Gets the given album's review from Pitchfork.
-     *  Calls the callbackfunction with the abstract of the review.
+    /** Gets events for the given city at the given time range.
+     *  Calls the callbackfunction with the an array of events, sorted by popularity.
      */
     getAskHelmutEvents: function (city, date, callbackFunction, errorCallbackFunction) {
         var typeOfDate;
+        // Take care of dates where the week is displayed with only one digit, make it two digits
+        if(date.lastIndexOf('-') === 7) {
+            date = date.slice(0,6) + '0' + date.slice(6);
+        }
         // Convert the weekend date to something Moment.js can use
         if(date.indexOf('-WE') === 8) {
             date = moment(date.replace('-WE', ''));
@@ -106,11 +129,16 @@ var helper = {
             }
             date = moment(date);
         }
+        // Get the cities in a format that Ask Helmut understands
+        if (city === 'Köln') {
+            city = 'Cologne';
+        } else if (city === 'München') {
+            city = 'Munich';
+        }
         // Scrape https://askhelmut.com/lists/helmuts-list-berlin to find events for the given time
         // Scrape tutorial here: https://www.sitepoint.com/web-scraping-in-node-js/
-        var prefix = 'http://pitchfork.com';
         request({
-            uri: 'https://askhelmut.com/lists/helmuts-list-' + city,
+            uri: 'https://askhelmut.com/lists/helmuts-list-' + city.toLowerCase(),
         }, function(error, response, body) {
             try{
                 var $ = cheerio.load(body);
@@ -128,10 +156,9 @@ var helper = {
                     // See if the given event takes place in the given timerange
                     if (typeOfDate === 'wholerange' || 
                         (typeOfDate === 'week' && eventDate.isBetween(date, date.clone().add(7, 'days'), null, '[)')) ||
-                        (typeOfDate === 'weekend' && eventDate.isBetween(date, date.clone().add(1, 'days'), null, '[]')) || 
+                        (typeOfDate === 'weekend' && eventDate.isBetween(date, date.clone().add(2, 'days'), null, '[]')) || 
                         (typeOfDate === 'day' && date.isSame(eventDate))
                         ) {
-                        console.log(eventDate);
                         // Replace all line breaks using a regular expression
                         eventObject.title = loadedElement(".event-tile-title.ellipsis").text().replace(/\n/g,'');
                         eventObject.location = loadedElement(".event-tile-info__venue-title").text().replace(/\n/g,'');
