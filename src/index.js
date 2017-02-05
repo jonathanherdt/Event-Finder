@@ -69,12 +69,18 @@ function handleEventRequest(request, response) {
 
     helper.getAskHelmutEvents(city, date, function(events, typeOfDate) {
         var speechOutput = '';
+        var cardTitle = '';
+        var cardContent = '';
+        var cardImage = '';
         if(request.data.request.locale === 'de-DE') {
-            if(events.length === 0){
+            cardTitle = 'Top-Events in ' + city;
+            if(events.length === 0) {
                 speechOutput = 'Tut mir leid, ich konnte keine Events in ' + city + ' finden.';
+                cardContent = speechOutput;
             } else {
                 // Make sure the week days are pronounced in the correct language
                 moment.locale('de');
+                cardImage = events[0].image;
                 speechOutput = "Deine Top-Events in " + city + ": ";
                 for (var i = 0; i < events.length && i < 3; i++) {
                     if(typeOfDate === 'wholerange') {
@@ -85,14 +91,17 @@ function handleEventRequest(request, response) {
                         speechOutput += 'Am ' + moment.weekdays(events[i].date.weekday());
                     }
                     speechOutput += ' ' + events[i].title + ' . Location: ' + events[i].location + ' . ';
+                    cardContent += (i + 1) + '.: ' + events[i].title + '\nLocation: ' + events[i].location + '\n';
                 }
             }
         } else {
-            if(events.length === 0){
+            cardTitle = 'Top Events in ' + city;
+            if(events.length === 0) {
                 speechOutput = 'I\'m sorry, I couldn\'t find any events in ' + city;
             } else {
                 // Make sure the week days are pronounced in the correct language
                 moment.locale('en');
+                cardImage = events[0].image;
                 speechOutput = "Your top picks in " + city + ": ";
                 for (var i = 0; i < events.length && i < 3; i++) {
                     if(typeOfDate === 'wholerange'){
@@ -103,9 +112,19 @@ function handleEventRequest(request, response) {
                         speechOutput += 'On ' + moment.weekdays(events[i].date.weekday());
                     }
                     speechOutput += ' ' + events[i].title + ' at ' + events[i].location + ' . ';
+                    cardContent += (i + 1) + '.: ' + events[i].title + '\nLocation: ' + events[i].location + '\n';
                 }
             }
         }
+        // Add a card displaying more information about the events
+        response.card({
+            type: "Standard",
+            title: cardTitle, // this is not required for type Simple or Standard
+            text: cardContent,
+            image: {
+                largeImageUrl: cardImage
+            }
+        });
         response.say(speechOutput).send();
     }, function(errorFeedback){
         if(request.data.request.locale === 'de-DE') {
@@ -162,6 +181,7 @@ var helper = {
                 days.each(function(index, element) {
                     var loadedElement = cheerio.load(element);
                     var eventObject = JSON.parse(loadedElement(".event-tile__favorites")['0'].attribs['data-react-props']);
+                    eventObject.image = loadedElement(".event-tile__cover-image > img")['0'].attribs['src'];
                     var eventDate = eventObject.tracking.resource.substr(8, 10);
                     if(eventDate.indexOf('-') === 4) {
                         eventDate = moment(eventObject.tracking.resource.substr(8, 10), 'YYYY-MM-DD');
