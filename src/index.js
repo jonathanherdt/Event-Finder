@@ -10,10 +10,10 @@ var helpAndLaunchFunction = function (request, response) {
     var prompt, reprompt;
     if(request.data.request.locale === 'de-DE') {
         reprompt = 'Mit Events für welche Stadt kann ich dir helfen?';
-        prompt = "Du kannst mich Sachen wie folgt fragen: 'Frag Event-Finder nach Events in Berlin an diesem Wochenende!', oder, du kannst 'Ende!' sagen... Ich kann dir aktuell Events für Berlin, Leipzig, München und Köln liefern. Wie kann ich dir helfen?";
+        prompt = "Du kannst mich Sachen wie folgt fragen: 'Frag Event-Finder nach Events in Berlin an diesem Wochenende!', oder, du kannst 'Ende!' sagen... Ich kann dir aktuell Events für Berlin, Leipzig, München und Köln über Ask Helmut liefern. Wie kann ich dir helfen?";
     } else {
         reprompt = 'Which city do you want to get events for?';
-        prompt = "You can make a request like 'Ask event finder what's going on this weekend in Berlin?', or, you can say 'Exit!'... Currently I can give you events for Berlin, Leipzig, Munich and Cologne. What can I help you with?";
+        prompt = "You can make a request like 'Ask event finder what's going on this weekend in Berlin?', or, you can say 'Exit!'... Currently I can give you events for Berlin, Leipzig, Munich and Cologne, via Ask Helmut. What can I help you with?";
     }
     response.say(prompt).reprompt(reprompt).shouldEndSession(false).send();
 }
@@ -42,8 +42,9 @@ app.intent('GetEventsIntent', {
             'City': 'AMAZON.DE_CITY'
         },
         // German
-        'utterances': ['Frag Event-Finder nach Events in {-|City} an {-|Date}',
-            'Frag Event-Finder nach Events in {-|City}']
+        'utterances': ['Frag Ausgeh-Planer nach Events in {-|City} {|an|am|im} {-|Date}',
+            'Frag Ausgeh-Planer nach Events {|an|am|im} {-|Date} in {-|City}',
+            'Frag Ausgeh-Planer was {|an|am|im} {-|Date} los ist in {-|City}']
         // English
         // 'utterances': ['{|tell me|what is} {|Pitchfork\'s|the} album rating of {-|Album} {by|from} {-|Artist}',
         // '{-|Album} by {-|Artist}']
@@ -66,7 +67,7 @@ function handleEventRequest(request, response) {
         response.say('Ich konnte die Stadt nicht richtig verstehen').send();
     }
 
-    helper.getAskHelmutEvents(city, date, function(events) {
+    helper.getAskHelmutEvents(city, date, function(events, typeOfDate) {
         var speechOutput = '';
         if(request.data.request.locale === 'de-DE') {
             if(events.length === 0){
@@ -76,7 +77,14 @@ function handleEventRequest(request, response) {
                 moment.locale('de');
                 speechOutput = "Deine Top-Events in " + city + ": ";
                 for (var i = 0; i < events.length && i < 3; i++) {
-                    speechOutput += 'Am ' + moment.weekdays(events[i].date.weekday()) + ' \'' + events[i].title + '. Location: ' + events[i].location + '. ';
+                    if(typeOfDate === 'wholerange') {
+                        // See https://momentjs.com/docs/#/displaying/format/ for information
+                        // on formatting
+                        speechOutput += 'Am ' + events[i].date.format('Do MMMM');
+                    } else if(typeOfDate !== 'day') {
+                        speechOutput += 'Am ' + moment.weekdays(events[i].date.weekday());
+                    }
+                    speechOutput += ' ' + events[i].title + ' . Location: ' + events[i].location + ' . ';
                 }
             }
         } else {
@@ -85,9 +93,16 @@ function handleEventRequest(request, response) {
             } else {
                 // Make sure the week days are pronounced in the correct language
                 moment.locale('en');
-                speechOutput = "Your top picks in " + city + " are: ";
+                speechOutput = "Your top picks in " + city + ": ";
                 for (var i = 0; i < events.length && i < 3; i++) {
-                    speechOutput += 'On ' + moment.weekdays(events[i].date.weekday()) + ' \'' + events[i].title + ' at ' + events[i].location + '.';
+                    if(typeOfDate === 'wholerange'){
+                        // See https://momentjs.com/docs/#/displaying/format/ for information
+                        // on formatting
+                        speechOutput += 'On ' + events[i].date.format('Do MMMM');
+                    } else if(typeOfDate !== 'day'){
+                        speechOutput += 'On ' + moment.weekdays(events[i].date.weekday());
+                    }
+                    speechOutput += ' ' + events[i].title + ' at ' + events[i].location + ' . ';
                 }
             }
         }
@@ -111,7 +126,7 @@ var helper = {
     getAskHelmutEvents: function (city, date, callbackFunction, errorCallbackFunction) {
         var typeOfDate;
         // Take care of dates where the week is displayed with only one digit, make it two digits
-        if(date.lastIndexOf('-') === 7) {
+        if(date.lastIndexOf('-') === 7 && date.indexOf('W') > 0) {
             date = date.slice(0,6) + '0' + date.slice(6);
         }
         // Convert the weekend date to something Moment.js can use
@@ -178,7 +193,7 @@ var helper = {
                     }
                 });
 
-                callbackFunction(sortedEvents);
+                callbackFunction(sortedEvents, typeOfDate);
                 
             } catch (error) {
                 errorCallbackFunction(error);
