@@ -1,10 +1,8 @@
 var fs = require('fs');
-var request = require("request");
-var cheerio = require("cheerio");
-var moment = require("moment");
 var Alexa = require('alexa-app');
 
 var EventFinderHelper = require('event-finder-helper');
+var helper = new EventFinderHelper();
 
 var app = new Alexa.app('eventfinder');
 
@@ -45,7 +43,7 @@ app.intent('GetEventsIntent', {
         },
         // German
         'utterances': ['Frag Ausgeh-Planer nach Events in {-|City} {|an|am|im} {-|Date}',
-            'Frag Ausgeh-Planer nach Events {|an|am|im} {-|Date} in {-|City}',
+            'Frag Ausgeh-Planer nach Events {|an|am|im|in} {-|Date} in {-|City}',
             'Frag Ausgeh-Planer was {|an|am|im} {-|Date} los ist in {-|City}']
         // English
         // 'utterances': ['{|tell me|what is} {|Pitchfork\'s|the} album rating of {-|Album} {by|from} {-|Artist}',
@@ -75,10 +73,10 @@ function handleEventRequest(request, response) {
         }
     }
 
-    EventFinderHelper.getAskHelmutEvents(city, date, function(events, typeOfDate) {
-        var speechOutput = EventFinderHelper.prepareSpeechOutput(request, city, events, typeOfDate);
+    helper.getAskHelmutEvents(city, date, function(events, typeOfDate) {
+        var speechOutput = helper.prepareSpeechOutput(request.data.request.locale, city, events, typeOfDate);
         if(events.length > 0){
-            var card = EventFinderHelper.prepareResponseCard(request, city, events);
+            var card = helper.prepareResponseCard(request.data.request.locale, city, events);
             if(card){
                 response.card(card);
             }

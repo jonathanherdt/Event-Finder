@@ -1,17 +1,21 @@
 'use strict';
 
+var moment = require("moment");
+var request = require("request");
+var cheerio = require("cheerio");
+
 function EventFinderHelper() { }
 
 /**
  * Returns a card object pre-filled with everything that Alexa expects from a card response.
  * In case there are no events, undefined is returned.
  */
-EventFinderHelper.prototype.prepareResponseCard = function(request, city, events) {
+EventFinderHelper.prototype.prepareResponseCard = function(locale, city, events) {
     var cardImage = '';
     var cardObject = {
         type: "Standard",
         title: '',
-        text: '',
+        text: ''
     }
 
     if(events.length === 0) {
@@ -21,7 +25,7 @@ EventFinderHelper.prototype.prepareResponseCard = function(request, city, events
             cardObject.text += (i + 1) + '.: ' + events[i].title + '\nLocation: ' + events[i].location + '\n';
         }
         city = city.charAt(0).toUpperCase() + city.substring(1);
-        if(request.data.request.locale === 'de-DE') {
+        if(locale === 'de-DE') {
             cardObject.title = 'Top-Events in ' + city;
         } else {
             cardObject.title = 'Top Events in ' + city;
@@ -35,9 +39,9 @@ EventFinderHelper.prototype.prepareResponseCard = function(request, city, events
     }
 };
 
-EventFinderHelper.prototype.prepareSpeechOutput = function(request, city, events, typeOfDate) {
+EventFinderHelper.prototype.prepareSpeechOutput = function(locale, city, events, typeOfDate) {
     var speechOutput = '';
-    if(request.data.request.locale === 'de-DE') {
+    if(locale === 'de-DE') {
         if(events.length === 0) {
             speechOutput = 'Tut mir leid, in meiner Datenbank sind keine Events für die von dir angegebene Zeit in ' + city + '.';
         } else {
@@ -80,13 +84,10 @@ EventFinderHelper.prototype.prepareSpeechOutput = function(request, city, events
     return speechOutput;
 };
 
-/** Gets events for the given city at the given time range.
- *  Calls the callbackfunction with the an array of events, sorted by popularity.
- */
-EventFinderHelper.prototype.getAskHelmutEvents =  function (city, date, callbackFunction, errorCallbackFunction) {
+EventFinderHelper.prototype.prepareDateForMoment = function (date) {
     var typeOfDate;
     // Take care of dates where the week is displayed with only one digit, make it two digits
-    if(date.lastIndexOf('-') === 7 && date.indexOf('W') > 0) {
+    if((date.lastIndexOf('-') === 7 || date.length === 7) && date.indexOf('W') > 0) {
         date = date.slice(0,6) + '0' + date.slice(6);
     }
     // Convert the weekend date to something Moment.js can use
@@ -104,6 +105,25 @@ EventFinderHelper.prototype.getAskHelmutEvents =  function (city, date, callback
         }
         date = moment(date);
     }
+
+    if(!date.isValid()){
+        date = undefined;
+    }
+
+    return {
+        typeOfDate: typeOfDate,
+        date: date
+    }
+}
+
+/** Gets events for the given city at the given time range.
+ *  Calls the callbackfunction with the an array of events, sorted by popularity.
+ */
+EventFinderHelper.prototype.getAskHelmutEvents = function (city, date, callbackFunction, errorCallbackFunction) {
+    var dateObject = this.prepareDateForMoment(date);
+    var typeOfDate = dateObject.typeOfDate;
+    date = dateObject.date;
+    
     // Get the cities in a format that Ask Helmut understands
     if (city === 'Köln') {
         city = 'Cologne';
