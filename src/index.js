@@ -10,10 +10,10 @@ var helpAndLaunchFunction = function (request, response) {
     var prompt, reprompt;
     if(request.data.request.locale === 'de-DE') {
         reprompt = 'Mit Events für welche Stadt kann ich dir helfen?';
-        prompt = "Du kannst mich Sachen wie folgt fragen: 'Frag Event-Finder nach Events in Berlin an diesem Wochenende!', oder, du kannst 'Ende!' sagen... Ich kann dir aktuell Events für Berlin, Leipzig, München und Köln über Ask Helmut liefern. Wie kann ich dir helfen?";
+        prompt = "Du kannst mich Sachen wie folgt fragen: frag Ausgeh-Planer nach Events an diesem Wochenende in Berlin, oder, du kannst Ende! sagen... Ich kann dir aktuell Events für Berlin, Leipzig, München und Köln über Ask Helmut liefern. Wie kann ich dir helfen?";
     } else {
         reprompt = 'Which city do you want to get events for?';
-        prompt = "You can make a request like 'Ask event finder what's going on this weekend in Berlin?', or, you can say 'Exit!'... Currently I can give you events for Berlin, Leipzig, Munich and Cologne, via Ask Helmut. What can I help you with?";
+        prompt = "You can make a request like Ask event finder what's going on this weekend in Berlin?, or, you can say Exit! ... Currently I can give you events for Berlin, Leipzig, Munich and Cologne, via Ask Helmut. What can I help you with?";
     }
     response.say(prompt).reprompt(reprompt).shouldEndSession(false).send();
 }
@@ -59,72 +59,28 @@ app.intent('GetEventsIntent', {
 function handleEventRequest(request, response) {
     var date = request.slot('Date'), city = request.slot('City');
 
-    if(!date) {
-        response.say('Ich konnte das Datum nicht richtig verstehen').send();
-        return;
+    if(!date && !city){
+        helpAndLaunchFunction(request, response);
     }
-    if(!city) {
-        response.say('Ich konnte die Stadt nicht richtig verstehen').send();
+    else {
+        if(!date) {
+            response.say('Ich konnte das Datum nicht richtig verstehen').send();
+            return;
+        }
+        if(!city) {
+            response.say('Ich konnte die Stadt nicht richtig verstehen').send();
+            return;
+        }
     }
 
     helper.getAskHelmutEvents(city, date, function(events, typeOfDate) {
-        var speechOutput = '';
-        var cardTitle = '';
-        var cardContent = '';
-        var cardImage = '';
-        if(request.data.request.locale === 'de-DE') {
-            cardTitle = 'Top-Events in ' + city;
-            if(events.length === 0) {
-                speechOutput = 'Tut mir leid, ich konnte keine Events in ' + city + ' finden.';
-                cardContent = speechOutput;
-            } else {
-                // Make sure the week days are pronounced in the correct language
-                moment.locale('de');
-                cardImage = events[0].image;
-                speechOutput = "Deine Top-Events in " + city + ": ";
-                for (var i = 0; i < events.length && i < 3; i++) {
-                    if(typeOfDate === 'wholerange') {
-                        // See https://momentjs.com/docs/#/displaying/format/ for information
-                        // on formatting
-                        speechOutput += 'Am ' + events[i].date.format('Do MMMM');
-                    } else if(typeOfDate !== 'day') {
-                        speechOutput += 'Am ' + moment.weekdays(events[i].date.weekday());
-                    }
-                    speechOutput += ' ' + events[i].title + ' . Location: ' + events[i].location + ' . ';
-                    cardContent += (i + 1) + '.: ' + events[i].title + '\nLocation: ' + events[i].location + '\n';
-                }
-            }
-        } else {
-            cardTitle = 'Top Events in ' + city;
-            if(events.length === 0) {
-                speechOutput = 'I\'m sorry, I couldn\'t find any events in ' + city;
-            } else {
-                // Make sure the week days are pronounced in the correct language
-                moment.locale('en');
-                cardImage = events[0].image;
-                speechOutput = "Your top picks in " + city + ": ";
-                for (var i = 0; i < events.length && i < 3; i++) {
-                    if(typeOfDate === 'wholerange'){
-                        // See https://momentjs.com/docs/#/displaying/format/ for information
-                        // on formatting
-                        speechOutput += 'On ' + events[i].date.format('Do MMMM');
-                    } else if(typeOfDate !== 'day'){
-                        speechOutput += 'On ' + moment.weekdays(events[i].date.weekday());
-                    }
-                    speechOutput += ' ' + events[i].title + ' at ' + events[i].location + ' . ';
-                    cardContent += (i + 1) + '.: ' + events[i].title + '\nLocation: ' + events[i].location + '\n';
-                }
+        var speechOutput = helper.prepareSpeechOutput(request, city, events, typeOfDate);
+        if(events.length > 0){
+            var card = helper.prepareResponseCard(request, city, events);
+            if(card){
+                response.card(card);
             }
         }
-        // Add a card displaying more information about the events
-        response.card({
-            type: "Standard",
-            title: cardTitle, // this is not required for type Simple or Standard
-            text: cardContent,
-            image: {
-                largeImageUrl: cardImage
-            }
-        });
         response.say(speechOutput).send();
     }, function(errorFeedback){
         if(request.data.request.locale === 'de-DE') {
@@ -135,9 +91,88 @@ function handleEventRequest(request, response) {
     });
 }
 
+
+
 // --------------- Helper Functions  -----------------------
 
 var helper = {
+    /**
+     * Returns a card object pre-filled with everything that Alexa expects from a card response.
+     * In case there are no events, undefined is returned.
+     */
+    prepareResponseCard: function(request, city, events) {
+        var cardImage = '';
+        var cardObject = {
+            type: "Standard",
+            title: '',
+            text: '',
+        }
+
+        if(events.length === 0) {
+            return undefined;
+        } else {
+            for (var i = 0; i < events.length && i < 3; i++) {
+                cardObject.text += (i + 1) + '.: ' + events[i].title + '\nLocation: ' + events[i].location + '\n';
+            }
+            city = city.charAt(0).toUpperCase() + city.substring(1);
+            if(request.data.request.locale === 'de-DE') {
+                cardObject.title = 'Top-Events in ' + city;
+            } else {
+                cardObject.title = 'Top Events in ' + city;
+            }
+            if(events[0].image){
+                cardObject.image = {
+                    largeImageUrl: events[0].image
+                }
+            }
+            return cardObject;
+        }
+    },
+
+    prepareSpeechOutput: function(request, city, events, typeOfDate) {
+        var speechOutput = '';
+        if(request.data.request.locale === 'de-DE') {
+            if(events.length === 0) {
+                speechOutput = 'Tut mir leid, in meiner Datenbank sind keine Events für die von dir angegebene Zeit in ' + city + '.';
+            } else {
+                // Make sure the week days are pronounced in the correct language
+                moment.locale('de');
+                speechOutput = "Deine Top-Events in " + city + ": ";
+                for (var i = 0; i < events.length && i < 3; i++) {
+                    speechOutput += "Nummer " + (i + 1) + ": ";
+                    if(typeOfDate === 'wholerange') {
+                        // See https://momentjs.com/docs/#/displaying/format/ for information
+                        // on formatting
+                        speechOutput += 'Am ' + events[i].date.format('Do MMMM');
+                    } else if(typeOfDate !== 'day') {
+                        speechOutput += 'Am ' + moment.weekdays(events[i].date.weekday());
+                    }
+                    speechOutput += ' ' + events[i].title + ' . Location: ' + events[i].location + ' . ';
+                }
+            }
+        } else {
+            if(events.length === 0) {
+                speechOutput = 'I\'m sorry, my database does not have any events for the time you gave me in ' + city;
+            } else {
+                // Make sure the week days are pronounced in the correct language
+                moment.locale('en');
+                speechOutput = "Your top picks in " + city + ": ";
+                for (var i = 0; i < events.length && i < 3; i++) {
+                    speechOutput += "Number " + (i + 1) + ": ";
+                    if(typeOfDate === 'wholerange'){
+                        // See https://momentjs.com/docs/#/displaying/format/ for information
+                        // on formatting
+                        speechOutput += 'On ' + events[i].date.format('Do MMMM');
+                    } else if(typeOfDate !== 'day'){
+                        speechOutput += 'On ' + moment.weekdays(events[i].date.weekday());
+                    }
+                    speechOutput += ' ' + events[i].title + ' at ' + events[i].location + ' . ';
+                }
+            }
+        }
+
+        return speechOutput;
+    },
 
     /** Gets events for the given city at the given time range.
      *  Calls the callbackfunction with the an array of events, sorted by popularity.
