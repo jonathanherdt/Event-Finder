@@ -49,7 +49,6 @@ describe('EventFinderHelper', function() {
         context('with a gibberish date', function() {
             it('doesn\'t fail', function() {
                 var value = helper.prepareDateForMoment('gibberish');
-                console.log(value.date);
                 return expect(value.date).to.be.undefined;
             });
         });

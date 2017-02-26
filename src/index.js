@@ -1,7 +1,7 @@
 var fs = require('fs');
 var Alexa = require('alexa-app');
 
-var EventFinderHelper = require('event-finder-helper');
+var EventFinderHelper = require('./event-finder-helper');
 var helper = new EventFinderHelper();
 
 var app = new Alexa.app('eventfinder');
@@ -69,6 +69,10 @@ function handleEventRequest(request, response) {
         }
         if(!city) {
             response.say('Ich konnte die Stadt nicht richtig verstehen').send();
+            return;
+        }
+        if(['berlin', 'leipzig', 'cologne', 'köln', 'munich', 'münchen'].indexOf(city.toLowerCase()) === -1){
+            response.say('Ich habe' + city + ' leider nicht in meiner Datenbank. Ich kann dir aktuell Events für Berlin, Leipzig, München und Köln über Ask Helmut liefern.').send();
             return;
         }
     }
